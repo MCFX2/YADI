@@ -47,6 +47,8 @@ namespace yadi
             inline static int global_value{ 0 };
             int local_value{ 0 };
 
+            std::string growing_string{ "abc" };
+
             //simple function that increments a global and local variable to show its been run
             void basic_function()
             {
@@ -68,7 +70,50 @@ namespace yadi
                 global_value += global_increment;
             }
 
+            //simple function that appends to a string
+            virtual void virtual_function(std::string const& text)
+            {
+                growing_string += text;
+            }
+
         };
+
+        //for testing virtual functions
+        struct other_class : public example_class
+        {
+            //this method replaces the string with text instead of appending it
+            void virtual_function(std::string const& text) override
+            {
+                growing_string = text;
+            }
+        };
+
+        int free_increment = 0;
+        //testing free functions
+
+        //increment the global counter by 1
+        void fn_no_args()
+        {
+            free_increment++;
+        }
+
+        //increment the global counter by a
+        void fn_one_arg(int a)
+        {
+            free_increment += a;
+        }
+
+        //increment the global counter by a, then decrement it by b
+        void fn_two_args(int a, int b)
+        {
+            free_increment += a - b;
+        }
+
+        //doubles the value you pass it (by reference)
+        void fn_reference(int& a)
+        {
+            a *= 2;
+        }
 
         /*
         * Test all helper functions in yadi::util
@@ -80,25 +125,28 @@ namespace yadi
 
             auto basic_attached{ util::attach(&example_class::basic_function, &testObject) };
             auto one_arg_attached{ util::attach(&example_class::one_arg_function, &testObject) };
-            auto two_arg_attached{ util::attach(&example_class::two_arg_function, &testObject) };
+
+            //test that passing a reference works too
+            auto two_arg_attached{ util::attach(&example_class::two_arg_function, testObject) };
 
             ASSERT_EQ(testObject.local_value, 0);
-            ASSERT_EQ(testObject.global_value, 0);
+            ASSERT_EQ(example_class::global_value, 0);
 
+            //test invoking functions with different numbers of arguments
             basic_attached();
 
             ASSERT_EQ(testObject.local_value, 1);
-            ASSERT_EQ(testObject.global_value, 1);
+            ASSERT_EQ(example_class::global_value, 1);
 
             one_arg_attached(3);
             
             ASSERT_EQ(testObject.local_value, 4);
-            ASSERT_EQ(testObject.global_value, 4);
+            ASSERT_EQ(example_class::global_value, 4);
 
             two_arg_attached(10, 100);
 
             ASSERT_EQ(testObject.local_value, 14);
-            ASSERT_EQ(testObject.global_value, 104);
+            ASSERT_EQ(example_class::global_value, 104);
 
             example_class::global_value = 0;
         }
@@ -108,7 +156,6 @@ namespace yadi
         *     - Subscribe during handle construction
         *     - Subscribe member class functions
         *     - Subscribe regular "free" function
-        *       - Test with both regular function and operator+=
         *     - Subscribe member virtual function
         *     - Subscribe lambda function
         *       - Test both with and without capture statements
@@ -116,7 +163,102 @@ namespace yadi
         */
         void basic_subscribe()
         {
+            ASSERT_EQ(example_class::global_value, 0);
 
+            example_class testObject;
+            testObject.local_value = 5;
+
+            yadi::delegate<int> testDelegate;
+
+            { //open a scope so we can control our handle getting destroyed
+                delegate_handle handle{ testDelegate.subscribe(&example_class::one_arg_function, testObject) };
+                //should run once
+                testDelegate(5);
+
+                ASSERT_EQ(example_class::global_value, 5);
+                ASSERT_EQ(testObject.local_value, 10);
+                ASSERT_EQ(testDelegate.subscriber_count(), 1);
+
+                //let delegate_handle fall out of scope
+            }
+
+            testDelegate(500); //should have no effect - no live handles remain
+
+            ASSERT_EQ(example_class::global_value, 5);
+            ASSERT_EQ(testObject.local_value, 10);
+            ASSERT_EQ(testDelegate.subscriber_count(), 0);
+
+            //create several instances
+            std::vector<delegate_handle> handles;
+            for (auto i{ 0 }; i < 50; ++i)
+            {
+                handles.push_back(testDelegate.subscribe(&example_class::one_arg_function, testObject));
+            }
+
+            //now one object is subscribed 50 times
+
+            //go ahead and throw a free function in there too
+            delegate_handle temp_handle{ testDelegate.subscribe(&fn_one_arg) };
+
+            ASSERT_EQ(free_increment, 0);
+
+            //should increment global and local by 100
+            //should increment free_increment by 2
+            testDelegate(2);
+
+            ASSERT_EQ(example_class::global_value, 105);
+            ASSERT_EQ(testObject.local_value, 110);
+            ASSERT_EQ(free_increment, 2);
+            ASSERT_EQ(testDelegate.subscriber_count(), 51);
+
+            //remove all handles
+            handles.clear();
+
+            //should be (once again) no subscriptions except the one free function
+            testDelegate(10000);
+
+            ASSERT_EQ(example_class::global_value, 105);
+            ASSERT_EQ(testObject.local_value, 110);
+            //this value should have been incremented- the subscription still exists
+            ASSERT_EQ(free_increment, 10002);
+            ASSERT_EQ(testDelegate.subscriber_count(), 1);
+
+            //now test a virtual function subscription
+            delegate<std::string const&> stringDelegate;
+
+            other_class secondObject;
+
+            //basic test
+            {
+                delegate_handle handle{ stringDelegate.subscribe(&other_class::virtual_function, secondObject) };
+
+                ASSERT_EQ(secondObject.growing_string, "abc");
+                ASSERT_EQ(stringDelegate.subscriber_count(), 1);
+
+                stringDelegate("cat");
+                
+                ASSERT_EQ(secondObject.growing_string, "cat");
+            }
+
+            ASSERT_EQ(stringDelegate.subscriber_count(), 0);
+            //test to see if virtual functions work properly
+            {
+                delegate_handle handle{ stringDelegate.subscribe(&example_class::virtual_function, static_cast<example_class*>(&secondObject)) };
+
+                ASSERT_EQ(secondObject.growing_string, "cat");
+                ASSERT_EQ(stringDelegate.subscriber_count(), 1);
+
+                stringDelegate("dog");
+
+                //if virtual lookup fails, this would be "catdog" instead
+                ASSERT_EQ(secondObject.growing_string, "dog");
+            }
+
+            ASSERT_EQ(stringDelegate.subscriber_count(), 0);
+
+
+            example_class::global_value = 0;
+            free_increment = 0;
         }
 
         /*

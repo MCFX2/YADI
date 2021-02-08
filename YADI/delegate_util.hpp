@@ -10,9 +10,15 @@ namespace yadi
 {
 	namespace util
 	{
-		//performs type-erasure on a class member function and returns an std::function
-		//with the same signature, bound to the given instance.
-		//
+		/* Performs type-erasure on a class member function and returns an std::function
+		*  with the same signature, bound to the given instance.
+		* 
+		*  Params:
+		*	- func
+		*		The member function we should bind.
+		*	- instance
+		*		A pointer to the instance of the class to bind the function to.
+		*/
 		template<typename Ret_type, typename Src_type, typename Inst, typename... Args>
 		std::function<Ret_type(Args...)> attach(Ret_type(Src_type::* func)(Args...), Inst* instance)
 		{
@@ -23,7 +29,22 @@ namespace yadi
 			return boundFunction;
 		}
 
-		//these are used to define some settings on delegate_handles
-		class a;
+		/* Performs type-erasure on a class member function and returns an std::function
+		*  with the same signature, bound to the given instance.
+		*
+		*  Params:
+		*	- func
+		*		The member function we should bind.
+		*	- instance
+		*		A reference to the instance of the class to bind the function to.
+		*/
+		template<typename Ret_type, typename Src_type, typename Inst, typename... Args>
+		std::function<Ret_type(Args...)> attach(Ret_type(Src_type::* func)(Args...), Inst& instance)
+		{
+			return attach(func, &instance);
+		}
+
+		//convenient struct for comparing two delegates
+
 	}
 }
