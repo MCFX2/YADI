@@ -27,7 +27,10 @@ namespace yadi
 	template<typename... Args>
 	class delegate : delegate_base
 	{
-		
+	private:
+		using callback_type = void(Args...);
+	public:
+		delegate() = default;
 	};
 }
 #endif
