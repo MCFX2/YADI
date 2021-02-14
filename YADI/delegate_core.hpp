@@ -28,12 +28,16 @@ namespace yadi
 		delegate_base() = default;
 		delegate_base(delegate_base const&) = default;
 
-		//all delegates must implement subscribe/unsubscribe methods
-
 		/*
+		* Given a delegate_handle (representing a valid subscription),
+		* remove the subscription and deactivate the handle. If the
+		* handle doesn't belong to this delegate, do nothing.
+		*
+		* Params:
+		*	- handle
+		*		The handle representing the subscription.
 		*/
 		virtual void unsubscribe(delegate_handle& handle) = 0;
-		virtual void move_subscription(delegate_handle& old_handle, delegate_handle& new_handle) = 0;
 
 		virtual ~delegate_base() = default;
 
@@ -45,6 +49,26 @@ namespace yadi
 
 		//notify the handle that its unsubscription was successful
 		void notify_handle_unsubscribed(delegate_handle& handle);
+
+		/*
+		* Given two delegate handles, move a subscription from one
+		* to the other. This does NOT change the underlying function, only
+		* the instance.
+		*
+		* Effectively, this changes which handle refers to a given function.
+		*
+		* Params:
+		*	- old_handle
+		*		The handle that we want to remove.
+		*	- new_handle
+		*		The handle that we want to replace it with. The caller is
+		*		responsible for ensuring that this handle is not already
+		*		subscribed to something else first.
+		*/
+		virtual void move_subscription(delegate_handle& old_handle, delegate_handle& new_handle) = 0;
+	private:
+		//needed to give access to move_subscription
+		friend class delegate_handle;
 	};
 
 
@@ -65,20 +89,38 @@ namespace yadi
 			}
 		}
 
-		//allow users to check equality of delegates
-		//returns true when delegates share an ID (and therefore delegate instance)
+		//copy assignment is similarly illegal
+		delegate_handle& operator=(delegate_handle const&) = delete;
+		//and likewise, move assignment is also allowed
+		delegate_handle& operator=(delegate_handle&& other) noexcept
+		{
+			if (m_boundDelegate)
+			{
+				m_boundDelegate->unsubscribe(*this);
+			}
+			if (other.m_boundDelegate)
+			{
+				other.m_boundDelegate->move_subscription(other, *this);
+			}
 
-		~delegate_handle()
+			return *this;
+		}
+
+		//manually detach this handle from its parent delegate
+		void unsubscribe()
 		{
 			if (m_boundDelegate)
 			{
 				m_boundDelegate->unsubscribe(*this);
 			}
 		}
+
+		~delegate_handle()
+		{
+			unsubscribe();
+		}
 	private:
 		delegate_base* m_boundDelegate{ nullptr };
-		//do not use up ID space until we actually need it
-		//delegate_base::handle_id_type m_id{ delegate_base::invalid_id };
 
 		friend class delegate_base;
 	};
@@ -89,13 +131,11 @@ namespace yadi
 
 	void delegate_base::notify_handle_subscribed(delegate_handle& handle)
 	{
-		//handle.m_id = current_id++;
 		handle.m_boundDelegate = this;
 	}
 
 	void delegate_base::notify_handle_unsubscribed(delegate_handle& handle)
 	{
-		//handle.m_id = invalid_id;
 		handle.m_boundDelegate = nullptr;
 	}
 }

@@ -37,15 +37,6 @@ namespace yadi
 	public:
 		delegate() = default;
 
-		delegate_handle subscribe(void(*fn)(Args...))
-		{
-			delegate_handle handle;
-			//delegate_handle move ctor will ensure this entry stays valid
-			m_callbacks.emplace(&handle, fn);
-			notify_handle_subscribed(handle);
-			return handle;
-		}
-
 		template<typename T>
 		delegate_handle subscribe(void(T::* fn)(Args...), T* instance)
 		{
@@ -61,7 +52,25 @@ namespace yadi
 			return subscribe(fn, &instance);
 		}
 
-		void unsubscribe(delegate_handle& handle)
+		delegate_handle subscribe(std::function<callback_type> const& fn)
+		{
+			delegate_handle handle;
+			//delegate_handle move ctor will ensure this entry stays valid
+			m_callbacks.emplace(&handle, fn);
+			notify_handle_subscribed(handle);
+			return handle;
+		}
+
+		/*
+		* Given a delegate_handle (representing a valid subscription),
+		* remove the subscription and deactivate the handle. If the
+		* handle doesn't belong to this delegate, do nothing.
+		*
+		* Params:
+		*	- handle
+		*		The handle representing the subscription.
+		*/
+		void unsubscribe(delegate_handle& handle) override
 		{
 			auto entry{ m_callbacks.find(&handle) };
 			if (entry != m_callbacks.end())
@@ -93,14 +102,14 @@ namespace yadi
 			}
 		}
 
-		//Returns the number of functions subscribed to this delegate.
+		//Returns the number of functions currently subscribed to this delegate.
 		size_t subscriber_count() const
 		{
 			return m_callbacks.size();
 		}
 
 		//Force-removes all subscribers from this delegate immediately.
-		void force_clear()
+		void clear_all_subscriptions()
 		{
 			for (auto& item : m_callbacks)
 			{
