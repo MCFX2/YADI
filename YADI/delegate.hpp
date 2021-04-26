@@ -32,11 +32,29 @@ namespace yadi
 	private:
 		using callback_type = void(Args...);
 
+		//std::map is used because there is no point in optimizing the execution of these functions
+		//calling a bunch of "random" functions already wreaks havoc on cache locality
+		//instead, it makes far more sense to optimize for search/remove/insert
 		std::map<delegate_handle*, std::function<callback_type>> m_callbacks;
 
 	public:
 		delegate() = default;
 
+		/*
+		* Given a member function pointer (&Coffee::Brew) and a pointer to an instance,
+		* subscribe that function to this delegate. The resulting call from the delegate
+		* will be the same as if you had done instance->fn(Args...).
+		*
+		* Params:
+		* 	- fn
+		*		The member function to subscribe. Its signature must match the one provided by the delegate.
+		*	- instance
+		*		A pointer to the object to call the function on. It must be valid to call the given member function on it.
+		*
+		* Returns:
+		*	A delegate_handle representing the subscription. When it goes out of scope, the subscription will be removed.
+		*	See the delegate_handle notes in delegate_core.hpp for more details.
+		*/
 		template<typename T>
 		delegate_handle subscribe(void(T::* fn)(Args...), T* instance)
 		{
@@ -46,12 +64,41 @@ namespace yadi
 			return handle;
 		}
 
+		/*
+		* Given a member function pointer (&Coffee::Brew) and an instance,
+		* subscribe that function to this delegate. The resulting call from the delegate
+		* will be the same as if you had done instance.fn(Args...).
+		*
+		* Params:
+		* 	- fn
+		*		The member function to subscribe. Its signature must match the one provided by the delegate.
+		*	- instance
+		*		An lvalue reference of the object to call the function on. It must be valid to call the given member function on it.
+				You must ensure that the delegate_handle returned does not outlive the object.
+		*
+		* Returns:
+		*	A delegate_handle representing the subscription. When it goes out of scope, the subscription will be removed.
+		*	See the delegate_handle notes in delegate_core.hpp for more details.
+		*/
 		template<typename T>
 		delegate_handle subscribe(void(T::* fn)(Args...), T& instance)
 		{
 			return subscribe(fn, &instance);
 		}
 
+		/*
+		* Given any function object (lambda, function pointer, functor, etc), subscribe it to this delegate.
+		* The resulting call from the delegate will be the same as if you had done fn(Args...).
+		*
+		* Params:
+		* 	- fn
+		*		The function to call. This can be any type that will construct a valid std::function.
+		*		That includes function pointers, lambdas, and other functors.
+		*
+		* Returns:
+		*	A delegate_handle representing the subscription. When it goes out of scope, the subscription will be removed.
+		*	See the delegate_handle notes in delegate_core.hpp for more details.
+		*/
 		delegate_handle subscribe(std::function<callback_type> const& fn)
 		{
 			delegate_handle handle;
@@ -80,8 +127,21 @@ namespace yadi
 			}
 		}
 
+		/*
+		* Transfers ownership of a delegate subscription from one handle to another.
+		* This assumes that the old handle is connected to this delegate already.
+		* If it isn't, calling this has no effect.
+		*
+		* Params:
+		*	- old_handle
+		*		The handle to move the subscription away from. This handle should be subscribed to this delegate already.
+		*	- new_handle
+		*		The handle to move the subscription to. If it already owns another subscription, that one will be removed.
+		*/
 		void move_subscription(delegate_handle& old_handle, delegate_handle& new_handle) override
 		{
+			//Additionally, this is a very good template for how to implement this function in other delegate implementations.
+			//This isn't part of the base class to allow flexibility in what underlying container you want to use.
 			auto entry{ m_callbacks.extract(&old_handle) };
 			if (!entry.empty())
 			{
